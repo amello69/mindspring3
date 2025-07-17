@@ -483,6 +483,7 @@ def tutor_page():
     ]
 
     # --- Subject Selection for Today's Study Session ---
+    # Only show this block if a subject hasn't been selected or context not loaded
     if not st.session_state.current_study_subject or not st.session_state.subject_context_loaded:
         st.subheader("Which subject do you want to study today?")
         with st.form("study_subject_form"):
@@ -561,169 +562,169 @@ def tutor_page():
                 st.rerun() # Rerun to display chat interface
             elif start_session_button and selected_subject_for_session == "-- Select a Subject --":
                 st.warning("Please select a valid subject to start your study session.")
-        return # Stop execution here until a subject is selected
+        # Removed the 'return' here to allow the rest of the page to render on subsequent reruns
+    else: # Subject is selected and context loaded, so show the chat interface
+        # --- Display Current Study Subject and Option to Change ---
+        st.info(f"You are currently studying: **{st.session_state.current_study_subject}**")
+        if st.button("Change Study Subject"):
+            st.session_state.current_study_subject = None # Reset to prompt for new selection
+            st.session_state.subject_context_loaded = False
+            st.session_state.chat_history = [] # Clear history when changing subject
+            st.rerun()
+            return # Return here to immediately show the subject selection form
 
-    # --- Display Current Study Subject and Option to Change ---
-    st.info(f"You are currently studying: **{st.session_state.current_study_subject}**")
-    if st.button("Change Study Subject"):
-        st.session_state.current_study_subject = None # Reset to prompt for new selection
-        st.session_state.subject_context_loaded = False
-        st.session_state.chat_history = [] # Clear history when changing subject
-        st.rerun()
-        return
+        # Dummy grade for context (can be moved to profile if desired)
+        student_grade = st.sidebar.selectbox("Your Grade Level:", ["Elementary", "Middle School", "High School", "College"], index=2) # Default to High School
 
-    # Dummy grade for context (can be moved to profile if desired)
-    student_grade = st.sidebar.selectbox("Your Grade Level:", ["Elementary", "Middle School", "High School", "College"], index=2) # Default to High School
+        # --- Chat Interface ---
+        col1, col2 = st.columns([1, 2]) # Input on left, output/history on right
 
-    # --- Chat Interface ---
-    col1, col2 = st.columns([1, 2]) # Input on left, output/history on right
-
-    with col1:
-        st.subheader("Your Input")
-        user_input = st.text_area("Type your question here:", height=150, key="user_input_area")
-        send_button = st.button("Send to Tutor")
-        
-        # New: Generate Visual Explanation button
-        generate_visual_button = st.button("Generate Visual Explanation", disabled=st.session_state.generating_image) # Disable while generating
-
-    with col2:
-        st.subheader("Chat History")
-        chat_display_area = st.container(height=400, border=True)
-
-        # Iterate through chat history, skipping the initial system message for display
-        for chat_message in st.session_state.chat_history:
-            if chat_message["role"] == "user":
-                chat_display_area.markdown(f"**You:** {chat_message['content']}")
-            elif chat_message["role"] == "assistant": # Only display assistant messages
-                chat_display_area.markdown(f"**Tutor:** {chat_message['content']}")
-            elif chat_message["role"] == "image": # Display generated images
-                chat_display_area.image(chat_message['content'], caption="AI Generated Visual")
-        
-        # Scroll to bottom
-        st.markdown("<script>window.scrollTo(0, document.body.scrollHeight);</script>", unsafe_allow_html=True)
-
-    if send_button and user_input:
-        if current_tokens <= 0:
-            st.error("You have no tokens left! Please contact support for more.")
-            return
-
-        # Decrement tokens for text interaction
-        user_data['tokens'] -= 1
-        update_user_data(user_data) # Save updated tokens to Firestore
-
-        # Add user message to history
-        st.session_state.chat_history.append({"role": "user", "content": user_input})
-        save_chat_history() # Save history to Firestore
-
-        # Construct AI prompt context for this turn (re-using the system message already in history)
-        messages = st.session_state.chat_history
-
-        try:
-            # Call OpenAI API
-            with st.spinner("Tutor is thinking..."):
-                client = openai.OpenAI(api_key=openai_api_key)
-                response = client.chat.completions.create(
-                    model="gpt-3.5-turbo", # Or "gpt-4" if you have access
-                    messages=messages,
-                    max_tokens=200,
-                    temperature=0.7,
-                )
-                tutor_response = response.choices[0].message.content
+        with col1:
+            st.subheader("Your Input")
+            user_input = st.text_area("Type your question here:", height=150, key="user_input_area")
+            send_button = st.button("Send to Tutor")
             
-            # Add tutor response to history
-            st.session_state.chat_history.append({"role": "assistant", "content": tutor_response})
+            # New: Generate Visual Explanation button
+            generate_visual_button = st.button("Generate Visual Explanation", disabled=st.session_state.generating_image) # Disable while generating
+
+        with col2:
+            st.subheader("Chat History")
+            chat_display_area = st.container(height=400, border=True)
+
+            # Iterate through chat history, skipping the initial system message for display
+            for chat_message in st.session_state.chat_history:
+                if chat_message["role"] == "user":
+                    chat_display_area.markdown(f"**You:** {chat_message['content']}")
+                elif chat_message["role"] == "assistant": # Only display assistant messages
+                    chat_display_area.markdown(f"**Tutor:** {chat_message['content']}")
+                elif chat_message["role"] == "image": # Display generated images
+                    chat_display_area.image(chat_message['content'], caption="AI Generated Visual")
             
-            # New: Play AI response as speech
-            audio_bytes = text_to_speech(tutor_response)
-            if audio_bytes:
-                st.audio(audio_bytes, format='audio/mp3', start_time=0)
+            # Scroll to bottom
+            st.markdown("<script>window.scrollTo(0, document.body.scrollHeight);</script>", unsafe_allow_html=True)
 
-            save_chat_history() # Save updated history to Firestore
-            st.rerun() # Rerun to update chat display and token count
+        if send_button and user_input:
+            if current_tokens <= 0:
+                st.error("You have no tokens left! Please contact support for more.")
+                return
 
-        except openai.APIError as e:
-            st.error(f"OpenAI API error: {e}")
-            # Revert token decrement if API call fails
-            user_data['tokens'] += 1
-            update_user_data(user_data)
-        except Exception as e:
-            st.error(f"An unexpected error occurred: {e}")
-            # Revert token decrement if API call fails
-            user_data['tokens'] += 1
-            update_user_data(user_data)
+            # Decrement tokens for text interaction
+            user_data['tokens'] -= 1
+            update_user_data(user_data) # Save updated tokens to Firestore
 
-    elif generate_visual_button:
-        # Cost for image generation (e.g., 50 tokens per image)
-        IMAGE_GENERATION_COST = 50 
-        if current_tokens < IMAGE_GENERATION_COST:
-            st.error(f"You need at least {IMAGE_GENERATION_COST} tokens to generate a visual. You have {current_tokens} tokens.")
-            return
+            # Add user message to history
+            st.session_state.chat_history.append({"role": "user", "content": user_input})
+            save_chat_history() # Save history to Firestore
 
-        # Decrement tokens for image generation
-        user_data['tokens'] -= IMAGE_GENERATION_COST
-        update_user_data(user_data) # Save updated tokens to Firestore
+            # Construct AI prompt context for this turn (re-using the system message already in history)
+            messages = st.session_state.chat_history
 
-        # Get the last assistant message as context for image generation
-        last_tutor_message = ""
-        for msg in reversed(st.session_state.chat_history):
-            if msg["role"] == "assistant":
-                last_tutor_message = msg["content"]
-                break
-        
-        if not last_tutor_message:
-            st.warning("No recent tutor message to generate a visual from. Please ask a question first.")
-            return
+            try:
+                # Call OpenAI API
+                with st.spinner("Tutor is thinking..."):
+                    client = openai.OpenAI(api_key=openai_api_key)
+                    response = client.chat.completions.create(
+                        model="gpt-3.5-turbo", # Or "gpt-4" if you have access
+                        messages=messages,
+                        max_tokens=200,
+                        temperature=0.7,
+                    )
+                    tutor_response = response.choices[0].message.content
+                
+                # Add tutor response to history
+                st.session_state.chat_history.append({"role": "assistant", "content": tutor_response})
+                
+                # New: Play AI response as speech
+                audio_bytes = text_to_speech(tutor_response)
+                if audio_bytes:
+                    st.audio(audio_bytes, format='audio/mp3', start_time=0)
 
-        # Use OpenAI to generate a concise image prompt from the tutor's last response
-        image_prompt_generation_messages = [
-            {"role": "system", "content": "You are an assistant that generates concise, descriptive image prompts based on provided text, suitable for a visual learner. Focus on key concepts. Max 50 words."},
-            {"role": "user", "content": f"Generate an image prompt based on this: {last_tutor_message}"}
-        ]
-        
-        image_gen_prompt = ""
-        try:
-            with st.spinner("Crafting image prompt..."):
-                client = openai.OpenAI(api_key=openai_api_key)
-                prompt_response = client.chat.completions.create(
-                    model="gpt-3.5-turbo",
-                    messages=image_prompt_generation_messages,
-                    max_tokens=50,
-                    temperature=0.7
-                )
-                image_gen_prompt = prompt_response.choices[0].message.content
-        except openai.APIError as e:
-            st.error(f"Error generating image prompt: {e}")
-            user_data['tokens'] += IMAGE_GENERATION_COST # Revert tokens
-            update_user_data(user_data)
-            return
-        except Exception as e:
-            st.error(f"An unexpected error occurred while crafting image prompt: {e}")
-            user_data['tokens'] += IMAGE_GENERATION_COST # Revert tokens
-            update_user_data(user_data)
-            return
+                save_chat_history() # Save updated history to Firestore
+                st.rerun() # Rerun to update chat display and token count
 
-        if image_gen_prompt:
-            st.session_state.chat_history.append({"role": "assistant", "content": f"Generating a visual for: '{image_gen_prompt}'"})
-            save_chat_history()
-            st.rerun() # Rerun to show the "Generating visual" message
+            except openai.APIError as e:
+                st.error(f"OpenAI API error: {e}")
+                # Revert token decrement if API call fails
+                user_data['tokens'] += 1
+                update_user_data(user_data)
+            except Exception as e:
+                st.error(f"An unexpected error occurred: {e}")
+                # Revert token decrement if API call fails
+                user_data['tokens'] += 1
+                update_user_data(user_data)
 
-            with st.spinner("Generating visual explanation... This may take a moment."):
-                # Call the Imagen API (now synchronous)
-                generated_image_url = generate_image(image_gen_prompt) 
+        elif generate_visual_button:
+            # Cost for image generation (e.g., 50 tokens per image)
+            IMAGE_GENERATION_COST = 50 
+            if current_tokens < IMAGE_GENERATION_COST:
+                st.error(f"You need at least {IMAGE_GENERATION_COST} tokens to generate a visual. You have {current_tokens} tokens.")
+                return
 
-                if generated_image_url:
-                    st.session_state.chat_history.append({"role": "image", "content": generated_image_url})
-                    save_chat_history()
-                    st.rerun() # Rerun to display the image
-                else:
-                    st.error("Failed to generate visual explanation.")
-        else:
-            st.warning("Could not generate a suitable image prompt.")
-        
-    st.markdown("---")
-    if st.button("Back to Profile"):
-        st.session_state.current_page = 'profile'
-        st.rerun()
+            # Decrement tokens for image generation
+            user_data['tokens'] -= IMAGE_GENERATION_COST
+            update_user_data(user_data) # Save updated tokens to Firestore
+
+            # Get the last assistant message as context for image generation
+            last_tutor_message = ""
+            for msg in reversed(st.session_state.chat_history):
+                if msg["role"] == "assistant":
+                    last_tutor_message = msg["content"]
+                    break
+            
+            if not last_tutor_message:
+                st.warning("No recent tutor message to generate a visual from. Please ask a question first.")
+                return
+
+            # Use OpenAI to generate a concise image prompt from the tutor's last response
+            image_prompt_generation_messages = [
+                {"role": "system", "content": "You are an assistant that generates concise, descriptive image prompts based on provided text, suitable for a visual learner. Focus on key concepts. Max 50 words."},
+                {"role": "user", "content": f"Generate an image prompt based on this: {last_tutor_message}"}
+            ]
+            
+            image_gen_prompt = ""
+            try:
+                with st.spinner("Crafting image prompt..."):
+                    client = openai.OpenAI(api_key=openai_api_key)
+                    prompt_response = client.chat.completions.create(
+                        model="gpt-3.5-turbo",
+                        messages=image_prompt_generation_messages,
+                        max_tokens=50,
+                        temperature=0.7
+                    )
+                    image_gen_prompt = prompt_response.choices[0].message.content
+            except openai.APIError as e:
+                st.error(f"Error generating image prompt: {e}")
+                user_data['tokens'] += IMAGE_GENERATION_COST # Revert tokens
+                update_user_data(user_data)
+                return
+            except Exception as e:
+                st.error(f"An unexpected error occurred while crafting image prompt: {e}")
+                user_data['tokens'] += IMAGE_GENERATION_COST # Revert tokens
+                update_user_data(user_data)
+                return
+
+            if image_gen_prompt:
+                st.session_state.chat_history.append({"role": "assistant", "content": f"Generating a visual for: '{image_gen_prompt}'"})
+                save_chat_history()
+                st.rerun() # Rerun to show the "Generating visual" message
+
+                with st.spinner("Generating visual explanation... This may take a moment."):
+                    # Call the Imagen API (now synchronous)
+                    generated_image_url = generate_image(image_gen_prompt) 
+
+                    if generated_image_url:
+                        st.session_state.chat_history.append({"role": "image", "content": generated_image_url})
+                        save_chat_history()
+                        st.rerun() # Rerun to display the image
+                    else:
+                        st.error("Failed to generate visual explanation.")
+            else:
+                st.warning("Could not generate a suitable image prompt.")
+            
+        st.markdown("---")
+        if st.button("Back to Profile"):
+            st.session_state.current_page = 'profile'
+            st.rerun()
 
 # --- Main App Logic ---
 def main():
