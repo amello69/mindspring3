@@ -10,6 +10,7 @@ import os # Import os for environment variables
 from pypdf import PdfReader # Import PdfReader for reading PDF files
 from gtts import gTTS # Import gTTS for Text-to-Speech
 import io # Import io for handling in-memory audio files
+import requests # Import requests for making HTTP calls
 
 # --- Firebase Initialization ---
 # Check if Firebase app is already initialized to prevent re-initialization errors
@@ -74,6 +75,8 @@ if 'active_syllabus' not in st.session_state:
     st.session_state.active_syllabus = ""
 if 'active_subject_context' not in st.session_state:
     st.session_state.active_subject_context = ""
+if 'generating_image' not in st.session_state:
+    st.session_state.generating_image = False
 
 
 # --- Helper Functions ---
@@ -166,8 +169,8 @@ def text_to_speech(text):
         st.error(f"Error converting text to speech: {e}")
         return None
 
-# Function to generate image using Imagen API
-async def generate_image(prompt):
+# Function to generate image using Imagen API (now synchronous)
+def generate_image(prompt):
     """Generates an image using the Imagen API."""
     st.session_state.generating_image = True
     try:
@@ -179,21 +182,6 @@ async def generate_image(prompt):
             "instances": {"prompt": prompt},
             "parameters": {"sampleCount": 1}
         }
-
-        # Using st.experimental_singleton to make fetch available in Streamlit context
-        # This requires Streamlit to be running in a compatible environment
-        # In a real Streamlit Cloud deployment, this fetch might need to be
-        # wrapped in an external service or a custom component for full reliability.
-        # For this example, we'll simulate the fetch call directly.
-        
-        # Simulate fetch call for image generation
-        # In a real scenario, this would be an actual HTTP request
-        # For now, we'll just return a placeholder image URL
-        
-        # To make a real fetch call, you'd typically use `requests` library in Python
-        # or if running in a browser context, a JavaScript fetch.
-        # Since this is server-side Python, we'll use `requests`.
-        import requests
         
         headers = {'Content-Type': 'application/json'}
         response = requests.post(apiUrl, headers=headers, data=json.dumps(payload))
@@ -590,7 +578,7 @@ def tutor_page():
         send_button = st.button("Send to Tutor")
         
         # New: Generate Visual Explanation button
-        generate_visual_button = st.button("Generate Visual Explanation")
+        generate_visual_button = st.button("Generate Visual Explanation", disabled=st.session_state.generating_image) # Disable while generating
 
     with col2:
         st.subheader("Chat History")
@@ -714,14 +702,11 @@ def tutor_page():
             st.rerun() # Rerun to show the "Generating visual" message
 
             with st.spinner("Generating visual explanation... This may take a moment."):
-                # Call the Imagen API
-                generated_image_url = st.session_state.get('generated_image_url', None) # Check if image is already generated in this rerun
-                if not generated_image_url:
-                    generated_image_url = await generate_image(image_gen_prompt) # Await the async function
+                # Call the Imagen API (now synchronous)
+                generated_image_url = generate_image(image_gen_prompt) 
 
                 if generated_image_url:
                     st.session_state.chat_history.append({"role": "image", "content": generated_image_url})
-                    st.session_state.generated_image_url = generated_image_url # Store to prevent re-generation on rerun
                     save_chat_history()
                     st.rerun() # Rerun to display the image
                 else:
@@ -770,18 +755,4 @@ def main():
         tutor_page()
 
 if __name__ == "__main__":
-    # Ensure asyncio is running for async operations like fetch
-    import asyncio
-    if asyncio.get_event_loop().is_running():
-        # If an event loop is already running (e.g., in Streamlit Cloud)
-        # we might need to handle this differently.
-        # For now, we'll assume the main() call handles the Streamlit loop.
-        pass
-    else:
-        # For local development or environments where loop isn't running
-        asyncio.run(main()) # This line is problematic in Streamlit's typical execution model
-        # Streamlit handles the event loop internally for app execution.
-        # The `await` keyword for `generate_image` will cause issues if not
-        # handled by Streamlit's internal async capabilities.
-        # Let's remove asyncio.run(main()) and rely on Streamlit's native async handling.
-        main() # Call main directly, Streamlit manages the loop
+    main()
