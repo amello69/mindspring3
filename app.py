@@ -7,6 +7,7 @@ import openai
 import uuid
 import base64 # Import base64 for decoding
 import os # Import os for environment variables
+from pypdf import PdfReader # Import PdfReader for reading PDF files
 
 # --- Firebase Initialization ---
 # Check if Firebase app is already initialized to prevent re-initialization errors
@@ -63,6 +64,15 @@ if 'user_data' not in st.session_state:
     st.session_state.user_data = None
 if 'chat_history' not in st.session_state:
     st.session_state.chat_history = []
+if 'current_study_subject' not in st.session_state:
+    st.session_state.current_study_subject = None
+if 'subject_context_loaded' not in st.session_state:
+    st.session_state.subject_context_loaded = False
+if 'active_syllabus' not in st.session_state:
+    st.session_state.active_syllabus = ""
+if 'active_subject_context' not in st.session_state:
+    st.session_state.active_subject_context = ""
+
 
 # --- Helper Functions ---
 
@@ -109,6 +119,37 @@ def save_chat_history():
         doc_ref = get_user_doc_ref(st.session_state.username)
         if doc_ref: # Check if doc_ref is valid
             doc_ref.update({'chat_history': st.session_state.chat_history})
+
+# Function to read text from a PDF file
+def read_pdf_text(file_path):
+    """Reads text content from a PDF file."""
+    text_content = ""
+    try:
+        reader = PdfReader(file_path)
+        for page in reader.pages:
+            text_content += page.extract_text() + "\n"
+    except FileNotFoundError:
+        st.error(f"PDF file not found: {file_path}")
+        return None
+    except Exception as e:
+        st.error(f"Error reading PDF file {file_path}: {e}")
+        return None
+    return text_content
+
+# Function to read text from a plain text file
+def read_text_file(file_path):
+    """Reads text content from a plain text file."""
+    text_content = ""
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            text_content = f.read()
+    except FileNotFoundError:
+        st.error(f"Text file not found: {file_path}")
+        return None
+    except Exception as e:
+        st.error(f"Error reading text file {file_path}: {e}")
+        return None
+    return text_content
 
 # --- Pages ---
 
@@ -311,14 +352,17 @@ def profile_page():
                 st.error("Failed to update learning preferences.")
 
     st.header("Subjects")
+    # Updated list of available subjects for general profile (multi-select)
     available_subjects = [
-        "Mathematics", "Physics", "Chemistry", "Biology", "Computer Science",
-        "History", "Geography", "Literature", "Economics", "Art"
+        "English A", "Mathematics", "Biology", "Integrated Science",
+        "Agricultural Science", "Chemistry", "Human and Social Biology",
+        "Physics", "Social Studies", "Principles of Business", "Geography"
     ]
     current_subjects = user_data.get('subjects', [])
 
     with st.form("subjects_form"):
-        st.subheader("Select Your Subjects (Max 5)")
+        st.subheader("Select Your General Subjects (Max 5)")
+        st.info("These are for your general profile. To select a subject for today's study session, go to the 'Tutor' page.")
         selected_subjects = st.multiselect(
             "Choose subjects:",
             available_subjects,
@@ -367,14 +411,83 @@ def tutor_page():
     st.sidebar.header("Your Settings")
     st.sidebar.write(f"**Username:** {user_data.get('username', 'N/A')}")
     st.sidebar.write(f"**Learning Style:** {user_data.get('learning_preferences', {}).get('style', 'N/A')}")
-    st.sidebar.write(f"**Subjects:** {', '.join(user_data.get('subjects', ['N/A']))}")
+    st.sidebar.write(f"**Subjects (Profile):** {', '.join(user_data.get('subjects', ['N/A']))}")
+    st.sidebar.write(f"**Current Study Subject:** {st.session_state.current_study_subject if st.session_state.current_study_subject else 'Not selected'}")
 
-    # Dummy syllabus and grade for context
-    sample_syllabi = {
-        "Mathematics": "Topics include Algebra, Geometry, Calculus basics, and Statistics.",
-        "Physics": "Covers Mechanics, Thermodynamics, Electromagnetism, and Optics.",
-        "Computer Science": "Includes Programming fundamentals, Data Structures, Algorithms, and Web Development basics."
-    }
+
+    # Define the full list of available subjects for study
+    available_study_subjects = [
+        "English A", "Mathematics", "Biology", "Integrated Science",
+        "Agricultural Science", "Chemistry", "Human and Social Biology",
+        "Physics", "Social Studies", "Principles of Business", "Geography"
+    ]
+
+    # --- Subject Selection for Today's Study Session ---
+    if not st.session_state.current_study_subject or not st.session_state.subject_context_loaded:
+        st.subheader("Which subject do you want to study today?")
+        with st.form("study_subject_form"):
+            selected_subject_for_session = st.selectbox(
+                "Select a subject:",
+                ["-- Select a Subject --"] + available_study_subjects,
+                key="study_subject_selector"
+            )
+            start_session_button = st.form_submit_button("Start Study Session")
+
+            if start_session_button and selected_subject_for_session != "-- Select a Subject --":
+                st.session_state.current_study_subject = selected_subject_for_session
+                
+                # Construct file paths for PDF syllabus and TXT context files
+                # Replace spaces and slashes for safe file names
+                subject_file_name = selected_subject_for_session.replace(" ", "_").replace("/", "-") 
+                syllabus_file_path = os.path.join("subject_context", f"syl_{subject_file_name}.pdf")
+                context_file_path = os.path.join("subject_context", f"con_{subject_file_name}.txt") # Changed to .txt
+
+                syllabus_content = ""
+                context_content = ""
+
+                # Load syllabus file (PDF)
+                syllabus_content = read_pdf_text(syllabus_file_path)
+                if syllabus_content is None: # read_pdf_text returns None on error
+                    st.session_state.subject_context_loaded = False
+                    st.session_state.current_study_subject = None # Reset subject on error
+                    st.rerun()
+                    return
+
+                # Load context file (TXT)
+                context_content = read_text_file(context_file_path) # Changed to read_text_file
+                if context_content is None: # read_text_file returns None on error
+                    st.session_state.subject_context_loaded = False
+                    st.session_state.current_study_subject = None # Reset subject on error
+                    st.rerun()
+                    return
+
+                st.session_state.active_syllabus = syllabus_content
+                st.session_state.active_subject_context = context_content
+                st.session_state.subject_context_loaded = True
+                
+                # Clear chat history for new subject session
+                st.session_state.chat_history = []
+                
+                # Add an initial message from the tutor to start the conversation
+                initial_tutor_message = f"Hello! Welcome to your {st.session_state.current_study_subject} study session. I'm ready to help you with any questions you have based on the syllabus and context provided. How can I assist you today?"
+                st.session_state.chat_history.append({"role": "assistant", "content": initial_tutor_message})
+                save_chat_history() # Save initial message to Firestore
+
+                st.rerun() # Rerun to display chat interface
+            elif start_session_button and selected_subject_for_session == "-- Select a Subject --":
+                st.warning("Please select a valid subject to start your study session.")
+        return # Stop execution here until a subject is selected
+
+    # --- Display Current Study Subject and Option to Change ---
+    st.info(f"You are currently studying: **{st.session_state.current_study_subject}**")
+    if st.button("Change Study Subject"):
+        st.session_state.current_study_subject = None # Reset to prompt for new selection
+        st.session_state.subject_context_loaded = False
+        st.session_state.chat_history = [] # Clear history when changing subject
+        st.rerun()
+        return
+
+    # Dummy grade for context (can be moved to profile if desired)
     student_grade = st.sidebar.selectbox("Your Grade Level:", ["Elementary", "Middle School", "High School", "College"], index=2) # Default to High School
 
     # --- Chat Interface ---
@@ -411,22 +524,27 @@ def tutor_page():
         st.session_state.chat_history.append({"role": "user", "content": user_input})
         save_chat_history() # Save history to Firestore
 
-        # Construct AI prompt context
+        # Construct AI prompt context using loaded syllabus and context
         preferences_str = ", ".join([f"{k}: {v}" for k, v in user_data.get('learning_preferences', {}).items()])
-        subjects_str = ", ".join(user_data.get('subjects', []))
-        syllabus_info = ""
-        for subject in user_data.get('subjects', []):
-            if subject in sample_syllabi:
-                syllabus_info += f"For {subject}, the syllabus covers: {sample_syllabi[subject]}. "
-
+        
         system_prompt = f"""
-        You are an AI tutor. Your responses should be tailored to the student's preferences and selected subjects.
+        You are an AI tutor specializing in {st.session_state.current_study_subject}.
+        Your responses should be tailored to the student's preferences and selected subject.
         Student's Grade Level: {student_grade}
-        Student's Learning Preferences: {preferences_str}
-        Student's Selected Subjects: {subjects_str}
-        Subject Syllabus Information: {syllabus_info}
-        Be helpful, patient, and provide clear explanations.
+
+        ---
+        Syllabus for {st.session_state.current_study_subject}:
+        {st.session_state.active_syllabus}
+        ---
+        Additional Context for {st.session_state.current_study_subject}:
+        {st.session_state.active_subject_context}
+        ---
+        Be helpful, patient, and provide clear explanations. Ensure your answers are strictly within the scope of the provided syllabus and context.
         """
+        # Add learning preferences to the system prompt if they exist
+        if preferences_str:
+            system_prompt += f"\nStudent's Learning Preferences: {preferences_str}"
+
 
         messages = [{"role": "system", "content": system_prompt}] + st.session_state.chat_history
 
