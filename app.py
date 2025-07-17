@@ -417,10 +417,16 @@ def profile_page():
     with st.form("subjects_form"):
         st.subheader("Select Your General Subjects (Max 5)")
         st.info("These are for your general profile. To select a subject for today's study session, go to the 'Tutor' page.")
+        
+        # Filter current_subjects to ensure only valid subjects are used as default
+        filtered_current_subjects = [
+            sub for sub in current_subjects if sub in available_subjects
+        ]
+
         selected_subjects = st.multiselect(
             "Choose subjects:",
             available_subjects,
-            default=current_subjects
+            default=filtered_current_subjects # Use the filtered list here
         )
         # Submit button for subjects form
         update_subjects_button = st.form_submit_button("Update Subjects")
