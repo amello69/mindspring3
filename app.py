@@ -181,6 +181,7 @@ def text_to_speech(text):
 def generate_image(prompt):
     """Generates an image using the Imagen API."""
     st.session_state.generating_image = True
+    print(f"DEBUG: Starting image generation for prompt: {prompt}")
     try:
         # Placeholder for API key, Canvas will inject it at runtime if empty
         apiKey = "" 
@@ -192,25 +193,45 @@ def generate_image(prompt):
         }
         
         headers = {'Content-Type': 'application/json'}
-        response = requests.post(apiUrl, headers=headers, data=json.dumps(payload))
-        response.raise_for_status() # Raise an exception for HTTP errors
         
-        result = response.json()
+        print(f"DEBUG: Making POST request to: {apiUrl}")
+        print(f"DEBUG: Request payload: {json.dumps(payload)}")
+        
+        response = requests.post(apiUrl, headers=headers, data=json.dumps(payload))
+        
+        print(f"DEBUG: Imagen API response status code: {response.status_code}")
+        
+        # Try to parse JSON response, but handle cases where it's not JSON
+        try:
+            result = response.json()
+            print(f"DEBUG: Imagen API response JSON: {json.dumps(result, indent=2)}")
+        except json.JSONDecodeError:
+            result = {"error": "JSONDecodeError", "raw_response": response.text}
+            print(f"ERROR: Imagen API response is not valid JSON. Raw response: {response.text}")
+            st.error(f"Image generation API returned non-JSON response. Check logs for details.")
+            return None
+
+        response.raise_for_status() # Raise an exception for HTTP errors (e.g., 4xx or 5xx)
         
         if result.get("predictions") and len(result["predictions"]) > 0 and result["predictions"][0].get("bytesBase64Encoded"):
             image_url = f"data:image/png;base64,{result['predictions'][0]['bytesBase64Encoded']}"
+            print(f"DEBUG: Successfully generated image. Image URL length: {len(image_url)}")
             return image_url
         else:
-            st.error("Image generation failed: No image data returned.")
+            print(f"ERROR: Image generation failed: No image data or bytesBase64Encoded found in response.")
+            st.error("Image generation failed: No image data returned. Check logs for details.")
             return None
     except requests.exceptions.RequestException as req_err:
-        st.error(f"Error calling Imagen API: {req_err}")
+        print(f"ERROR: Error calling Imagen API: {req_err}")
+        st.error(f"Error calling Imagen API: {req_err}. Check logs for details.")
         return None
     except Exception as e:
-        st.error(f"An unexpected error occurred during image generation: {e}")
+        print(f"ERROR: An unexpected error occurred during image generation: {e}")
+        st.error(f"An unexpected error occurred during image generation: {e}. Check logs for details.")
         return None
     finally:
         st.session_state.generating_image = False
+        print("DEBUG: Finished image generation attempt.")
 
 
 # --- Pages ---
