@@ -468,10 +468,35 @@ def tutor_page():
                 # Clear chat history for new subject session
                 st.session_state.chat_history = []
                 
+                # Construct the initial system prompt with all context
+                preferences_str = ", ".join([f"{k}: {v}" for k, v in user_data.get('learning_preferences', {}).items()])
+                
+                initial_system_prompt = f"""
+                You are an AI tutor specializing in {st.session_state.current_study_subject}.
+                Your responses should be tailored to the student's preferences and selected subject.
+                Student's Grade Level: {student_grade}
+                """
+                if preferences_str:
+                    initial_system_prompt += f"\nStudent's Learning Preferences: {preferences_str}"
+
+                initial_system_prompt += f"""
+                ---
+                Syllabus for {st.session_state.current_study_subject}:
+                {st.session_state.active_syllabus}
+                ---
+                Additional Context for {st.session_state.current_study_subject}:
+                {st.session_state.active_subject_context}
+                ---
+                Be helpful, patient, and provide clear explanations. Ensure your answers are strictly within the scope of the provided syllabus and context.
+                """
+
+                # Add the system prompt as the very first message
+                st.session_state.chat_history.append({"role": "system", "content": initial_system_prompt})
+
                 # Add an initial message from the tutor to start the conversation
                 initial_tutor_message = f"Hello! Welcome to your {st.session_state.current_study_subject} study session. I'm ready to help you with any questions you have based on the syllabus and context provided. How can I assist you today?"
                 st.session_state.chat_history.append({"role": "assistant", "content": initial_tutor_message})
-                save_chat_history() # Save initial message to Firestore
+                save_chat_history() # Save initial messages to Firestore
 
                 st.rerun() # Rerun to display chat interface
             elif start_session_button and selected_subject_for_session == "-- Select a Subject --":
@@ -502,10 +527,11 @@ def tutor_page():
         st.subheader("Chat History")
         chat_display_area = st.container(height=400, border=True)
 
+        # Iterate through chat history, skipping the initial system message for display
         for chat_message in st.session_state.chat_history:
             if chat_message["role"] == "user":
                 chat_display_area.markdown(f"**You:** {chat_message['content']}")
-            else:
+            elif chat_message["role"] == "assistant": # Only display assistant messages
                 chat_display_area.markdown(f"**Tutor:** {chat_message['content']}")
         
         # Scroll to bottom
@@ -524,29 +550,9 @@ def tutor_page():
         st.session_state.chat_history.append({"role": "user", "content": user_input})
         save_chat_history() # Save history to Firestore
 
-        # Construct AI prompt context using loaded syllabus and context
-        preferences_str = ", ".join([f"{k}: {v}" for k, v in user_data.get('learning_preferences', {}).items()])
-        
-        system_prompt = f"""
-        You are an AI tutor specializing in {st.session_state.current_study_subject}.
-        Your responses should be tailored to the student's preferences and selected subject.
-        Student's Grade Level: {student_grade}
-
-        ---
-        Syllabus for {st.session_state.current_study_subject}:
-        {st.session_state.active_syllabus}
-        ---
-        Additional Context for {st.session_state.current_study_subject}:
-        {st.session_state.active_subject_context}
-        ---
-        Be helpful, patient, and provide clear explanations. Ensure your answers are strictly within the scope of the provided syllabus and context.
-        """
-        # Add learning preferences to the system prompt if they exist
-        if preferences_str:
-            system_prompt += f"\nStudent's Learning Preferences: {preferences_str}"
-
-
-        messages = [{"role": "system", "content": system_prompt}] + st.session_state.chat_history
+        # Construct AI prompt context for this turn (re-using the system message already in history)
+        # The messages list will start with the system message already added
+        messages = st.session_state.chat_history
 
         try:
             # Call OpenAI API
