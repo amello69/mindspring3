@@ -127,6 +127,7 @@ def login_page():
     with st.form("login_form"):
         username = st.text_input("Username")
         password = st.text_input("Password", type="password")
+        # Submit button for the login form
         submit_button = st.form_submit_button("Login")
 
         if submit_button:
@@ -185,6 +186,7 @@ def register_page():
         # Placeholder for reCAPTCHA
         st.info("reCAPTCHA integration is typically handled server-side for security. This is a placeholder.")
 
+        # Submit button for the registration form
         submit_button = st.form_submit_button("Register")
 
         if submit_button:
@@ -263,21 +265,41 @@ def profile_page():
     current_preferences = user_data.get('learning_preferences', {})
     with st.form("learning_preferences_form"):
         st.subheader("Update Your Learning Preferences")
+        
+        # Options for learning style
+        learning_style_options = ['Interactive', 'Visual', 'Auditory', 'Reading/Writing', 'Kinesthetic']
+        current_style = current_preferences.get('style', 'Interactive')
+        # Safely get index, default to 0 if current_style is not in options
+        style_index = learning_style_options.index(current_style) if current_style in learning_style_options else 0
         learning_style = st.selectbox(
             "Preferred Learning Style:",
-            ['Interactive', 'Visual', 'Auditory', 'Reading/Writing', 'Kinesthetic'],
-            index=['Interactive', 'Visual', 'Auditory', 'Reading/Writing', 'Kinesthetic'].index(current_preferences.get('style', 'Interactive'))
+            learning_style_options,
+            index=style_index
         )
+        
+        # Options for learning pace
+        learning_pace_options = ['Slow', 'Moderate', 'Fast']
+        current_pace = current_preferences.get('pace', 'Moderate')
+        # Safely get index, default to 0 if current_pace is not in options
+        pace_index = learning_pace_options.index(current_pace) if current_pace in learning_pace_options else 0
         learning_pace = st.selectbox(
             "Preferred Learning Pace:",
-            ['Slow', 'Moderate', 'Fast'],
-            index=['Slow', 'Moderate', 'Fast'].index(current_preferences.get('pace', 'Moderate'))
+            learning_pace_options,
+            index=pace_index
         )
+        
+        # Options for difficulty level
+        difficulty_level_options = ['Beginner', 'Intermediate', 'Advanced']
+        current_difficulty = current_preferences.get('difficulty', 'Beginner')
+        # Safely get index, default to 0 if current_difficulty is not in options
+        difficulty_index = difficulty_level_options.index(current_difficulty) if current_difficulty in difficulty_level_options else 0
         difficulty_level = st.selectbox(
             "Preferred Difficulty Level:",
-            ['Beginner', 'Intermediate', 'Advanced'],
-            index=['Beginner', 'Intermediate', 'Advanced'].index(current_preferences.get('difficulty', 'Beginner'))
+            difficulty_level_options,
+            index=difficulty_index
         )
+        
+        # Submit button for learning preferences form
         update_pref_button = st.form_submit_button("Update Preferences")
 
         if update_pref_button:
@@ -305,6 +327,7 @@ def profile_page():
             available_subjects,
             default=current_subjects
         )
+        # Submit button for subjects form
         update_subjects_button = st.form_submit_button("Update Subjects")
 
         if update_subjects_button:
