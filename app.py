@@ -5,41 +5,37 @@ import bcrypt
 import json
 import openai
 import uuid
-# Removed gspread import as we are uploading the file directly
+import base64 # Import base64 for decoding
+import os # Import os for environment variables
 
 # --- Firebase Initialization ---
 # Check if Firebase app is already initialized to prevent re-initialization errors
 if 'firebase_initialized' not in st.session_state:
     st.session_state.firebase_initialized = False
 
-# This block will be executed only if Firebase is not yet initialized in the session
-# or if the user needs to re-upload the key.
+# This block will attempt to initialize Firebase using an environment variable
 if not st.session_state.firebase_initialized:
-    st.sidebar.header("Firebase Setup (Upload Key)")
-    uploaded_file = st.sidebar.file_uploader(
-        "Upload your Firebase Service Account JSON file",
-        type="json",
-        help="Upload the .json file downloaded from Firebase Console > Project settings > Service accounts > Generate new private key."
-    )
+    try:
+        # Attempt to get the Base64 encoded Firebase service account key from environment variables
+        firebase_service_account_key_b64 = os.environ.get("FIREBASE_SERVICE_ACCOUNT_KEY_B64")
 
-    if uploaded_file is not None:
-        try:
-            # Read the uploaded JSON file content
-            firebase_service_account_key_str = uploaded_file.read().decode('utf-8')
+        if firebase_service_account_key_b64:
+            # Decode the Base64 string back to JSON content
+            firebase_service_account_key_str = base64.b64decode(firebase_service_account_key_b64).decode('utf-8')
             
             # Initialize Firebase Admin SDK
             cred = credentials.Certificate(json.loads(firebase_service_account_key_str))
             firebase_admin.initialize_app(cred)
             
             st.session_state.firebase_initialized = True
-            st.success("Firebase initialized successfully with uploaded key!")
-            # Rerun the app to proceed with the initialized Firebase
-            st.rerun() 
-        except Exception as e:
-            st.error(f"Error initializing Firebase with uploaded file: {e}")
-            st.session_state.firebase_initialized = False # Ensure state is false on error
-    else:
-        st.sidebar.info("Please upload your Firebase Service Account JSON file to initialize Firebase.")
+            st.success("Firebase initialized successfully!")
+            # No rerun needed here, as it's part of the initial load
+        else:
+            st.warning("Firebase service account key (FIREBASE_SERVICE_ACCOUNT_KEY_B64) not found in environment variables. Please set it securely.")
+            st.session_state.firebase_initialized = False
+    except Exception as e:
+        st.error(f"Error initializing Firebase from environment variable: {e}")
+        st.session_state.firebase_initialized = False
 
 # Ensure db client is available if Firebase initialized
 if st.session_state.firebase_initialized:
@@ -121,7 +117,7 @@ def login_page():
 
     # Only show login/register forms if Firebase is initialized
     if not st.session_state.firebase_initialized:
-        st.warning("Please upload your Firebase Service Account JSON file in the sidebar to proceed.")
+        st.warning("Firebase is not initialized. Please ensure FIREBASE_SERVICE_ACCOUNT_KEY_B64 is set in Streamlit Cloud environment variables.")
         return
 
     with st.form("login_form"):
@@ -172,7 +168,7 @@ def register_page():
     st.title("AI Tutor Platform - Register")
 
     if not st.session_state.firebase_initialized:
-        st.warning("Please upload your Firebase Service Account JSON file in the sidebar to proceed.")
+        st.warning("Firebase is not initialized. Please ensure FIREBASE_SERVICE_ACCOUNT_KEY_B64 is set in Streamlit Cloud environment variables.")
         return
 
     with st.form("register_form"):
@@ -246,7 +242,7 @@ def profile_page():
         return
 
     if not st.session_state.firebase_initialized:
-        st.error("Firebase is not initialized. Please re-upload the key if needed.")
+        st.error("Firebase is not initialized. Please ensure FIREBASE_SERVICE_ACCOUNT_KEY_B64 is set in Streamlit Cloud environment variables.")
         return
 
     user_data = st.session_state.user_data
@@ -360,7 +356,7 @@ def tutor_page():
         return
     
     if not st.session_state.firebase_initialized:
-        st.error("Firebase is not initialized. Please re-upload the key if needed.")
+        st.error("Firebase is not initialized. Please ensure FIREBASE_SERVICE_ACCOUNT_KEY_B64 is set in Streamlit Cloud environment variables.")
         return
 
     user_data = st.session_state.user_data
