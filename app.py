@@ -10,11 +10,8 @@ import os # Import os for environment variables
 
 # --- Firebase Initialization ---
 # Check if Firebase app is already initialized to prevent re-initialization errors
-if 'firebase_initialized' not in st.session_state:
-    st.session_state.firebase_initialized = False
-
-# This block will attempt to initialize Firebase using an environment variable
-if not st.session_state.firebase_initialized:
+# Use firebase_admin._apps to check if any app is already initialized
+if not firebase_admin._apps:
     try:
         # Attempt to get the Base64 encoded Firebase service account key from environment variables
         firebase_service_account_key_b64 = os.environ.get("FIREBASE_SERVICE_ACCOUNT_KEY_B64")
@@ -36,6 +33,10 @@ if not st.session_state.firebase_initialized:
     except Exception as e:
         st.error(f"Error initializing Firebase from environment variable: {e}")
         st.session_state.firebase_initialized = False
+else:
+    # If an app is already initialized, set the session state flag to True
+    st.session_state.firebase_initialized = True
+    # st.info("Firebase app already initialized.") # Optional: for debugging
 
 # Ensure db client is available if Firebase initialized
 if st.session_state.firebase_initialized:
