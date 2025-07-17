@@ -4,24 +4,48 @@ from firebase_admin import credentials, firestore
 import bcrypt
 import json
 import openai
-import uuid # For generating unique user IDs if needed
+import uuid
+# Removed gspread import as we are uploading the file directly
 
 # --- Firebase Initialization ---
 # Check if Firebase app is already initialized to prevent re-initialization errors
-if not firebase_admin._apps:
-    try:
-        # Load Firebase service account key from Streamlit secrets
-        firebase_service_account_key_str = st.secrets["FIREBASE_SERVICE_ACCOUNT_KEY"]
-        cred = credentials.Certificate(json.loads(firebase_service_account_key_str))
-        firebase_admin.initialize_app(cred)
-        db = firestore.client()
-        st.session_state.firebase_initialized = True
-    except Exception as e:
-        st.error(f"Error initializing Firebase: {e}")
-        st.session_state.firebase_initialized = False
-else:
+if 'firebase_initialized' not in st.session_state:
+    st.session_state.firebase_initialized = False
+
+# This block will be executed only if Firebase is not yet initialized in the session
+# or if the user needs to re-upload the key.
+if not st.session_state.firebase_initialized:
+    st.sidebar.header("Firebase Setup (Upload Key)")
+    uploaded_file = st.sidebar.file_uploader(
+        "Upload your Firebase Service Account JSON file",
+        type="json",
+        help="Upload the .json file downloaded from Firebase Console > Project settings > Service accounts > Generate new private key."
+    )
+
+    if uploaded_file is not None:
+        try:
+            # Read the uploaded JSON file content
+            firebase_service_account_key_str = uploaded_file.read().decode('utf-8')
+            
+            # Initialize Firebase Admin SDK
+            cred = credentials.Certificate(json.loads(firebase_service_account_key_str))
+            firebase_admin.initialize_app(cred)
+            
+            st.session_state.firebase_initialized = True
+            st.success("Firebase initialized successfully with uploaded key!")
+            # Rerun the app to proceed with the initialized Firebase
+            st.rerun() 
+        except Exception as e:
+            st.error(f"Error initializing Firebase with uploaded file: {e}")
+            st.session_state.firebase_initialized = False # Ensure state is false on error
+    else:
+        st.sidebar.info("Please upload your Firebase Service Account JSON file to initialize Firebase.")
+
+# Ensure db client is available if Firebase initialized
+if st.session_state.firebase_initialized:
     db = firestore.client()
-    st.session_state.firebase_initialized = True
+else:
+    db = None # db will be None until Firebase is initialized
 
 # --- OpenAI API Key Setup ---
 try:
@@ -55,40 +79,50 @@ def check_password(password, hashed_password):
 
 def get_user_doc_ref(username):
     """Returns the Firestore document reference for a given username."""
-    # Using a simple collection for users for this example.
-    # In a real app, you might structure this under a specific app ID.
-    return db.collection('users').document(username)
+    # Ensure db is not None before attempting to access it
+    if db:
+        return db.collection('users').document(username)
+    else:
+        return None # Or raise an error, depending on desired behavior
 
 def load_user_data(username):
     """Loads user data from Firestore."""
     doc_ref = get_user_doc_ref(username)
-    user_doc = doc_ref.get()
-    if user_doc.exists:
-        st.session_state.user_data = user_doc.to_dict()
-        st.session_state.chat_history = st.session_state.user_data.get('chat_history', [])
-        return True
+    if doc_ref: # Check if doc_ref is valid
+        user_doc = doc_ref.get()
+        if user_doc.exists:
+            st.session_state.user_data = user_doc.to_dict()
+            st.session_state.chat_history = st.session_state.user_data.get('chat_history', [])
+            return True
     return False
 
 def update_user_data(data):
     """Updates user data in Firestore."""
-    if st.session_state.username:
+    if st.session_state.username and st.session_state.user_data and db: # Ensure db is initialized
         doc_ref = get_user_doc_ref(st.session_state.username)
-        doc_ref.set(data, merge=True) # Use merge=True to update specific fields
-        st.session_state.user_data = data # Update session state immediately
-        return True
+        if doc_ref: # Check if doc_ref is valid
+            doc_ref.set(data, merge=True) # Use merge=True to update specific fields
+            st.session_state.user_data = data # Update session state immediately
+            return True
     return False
 
 def save_chat_history():
     """Saves the current chat history to Firestore."""
-    if st.session_state.username and st.session_state.user_data:
+    if st.session_state.username and st.session_state.user_data and db: # Ensure db is initialized
         doc_ref = get_user_doc_ref(st.session_state.username)
-        doc_ref.update({'chat_history': st.session_state.chat_history})
+        if doc_ref: # Check if doc_ref is valid
+            doc_ref.update({'chat_history': st.session_state.chat_history})
 
 # --- Pages ---
 
 def login_page():
     """Displays the login page."""
     st.title("AI Tutor Platform - Login")
+
+    # Only show login/register forms if Firebase is initialized
+    if not st.session_state.firebase_initialized:
+        st.warning("Please upload your Firebase Service Account JSON file in the sidebar to proceed.")
+        return
 
     with st.form("login_form"):
         username = st.text_input("Username")
@@ -101,6 +135,10 @@ def login_page():
                 return
 
             user_doc_ref = get_user_doc_ref(username)
+            if user_doc_ref is None:
+                st.error("Firebase is not properly configured. Cannot access user data.")
+                return
+
             user_doc = user_doc_ref.get()
 
             if user_doc.exists:
@@ -132,6 +170,10 @@ def register_page():
     """Displays the user registration page."""
     st.title("AI Tutor Platform - Register")
 
+    if not st.session_state.firebase_initialized:
+        st.warning("Please upload your Firebase Service Account JSON file in the sidebar to proceed.")
+        return
+
     with st.form("register_form"):
         first_name = st.text_input("First Name")
         last_name = st.text_input("Last Name")
@@ -142,7 +184,6 @@ def register_page():
 
         # Placeholder for reCAPTCHA
         st.info("reCAPTCHA integration is typically handled server-side for security. This is a placeholder.")
-        # reCAPTCHA_response = st.text_input("Enter reCAPTCHA response (placeholder)") # Simulate reCAPTCHA input
 
         submit_button = st.form_submit_button("Register")
 
@@ -151,12 +192,16 @@ def register_page():
                 st.error("Firebase is not initialized. Cannot register.")
                 return
 
+            user_doc_ref = get_user_doc_ref(username)
+            if user_doc_ref is None:
+                st.error("Firebase is not properly configured. Cannot register user.")
+                return
+
             if password != confirm_password:
                 st.error("Passwords do not match.")
             elif not username or not password or not first_name or not last_name or not email:
                 st.error("All fields are required.")
             else:
-                user_doc_ref = get_user_doc_ref(username)
                 if user_doc_ref.get().exists:
                     st.error("Username already exists. Please choose a different one.")
                 else:
@@ -196,6 +241,10 @@ def profile_page():
         st.warning("Please log in to view your profile.")
         st.session_state.current_page = 'login'
         st.rerun()
+        return
+
+    if not st.session_state.firebase_initialized:
+        st.error("Firebase is not initialized. Please re-upload the key if needed.")
         return
 
     user_data = st.session_state.user_data
@@ -285,6 +334,10 @@ def tutor_page():
 
     if not st.session_state.openai_initialized:
         st.error("OpenAI API is not initialized. Cannot use tutor.")
+        return
+    
+    if not st.session_state.firebase_initialized:
+        st.error("Firebase is not initialized. Please re-upload the key if needed.")
         return
 
     user_data = st.session_state.user_data
