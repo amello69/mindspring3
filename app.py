@@ -12,7 +12,7 @@ if not firebase_admin._apps:
     try:
         # Load Firebase service account key from Streamlit secrets
         firebase_service_account_key_str = st.secrets["FIREBASE"]
-        cred = credentials.Certificate(json.loads(firebase_str))
+        cred = credentials.Certificate(json.loads(firebase_service_account_key_str))
         firebase_admin.initialize_app(cred)
         db = firestore.client()
         st.session_state.firebase_initialized = True
