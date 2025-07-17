@@ -129,12 +129,12 @@ def save_chat_history():
 def read_pdf_text(file_path):
     """Reads text content from a PDF file."""
     text_content = ""
-    print(f"Attempting to read PDF: {file_path}") # Debug print
+    print(f"DEBUG: Attempting to read PDF: {file_path}") # Debug print
     try:
         reader = PdfReader(file_path)
         for page in reader.pages:
             text_content += page.extract_text() + "\n"
-        print(f"Successfully read PDF: {file_path}, content length: {len(text_content)}") # Debug print
+        print(f"DEBUG: Successfully read PDF: {file_path}, content length: {len(text_content)}") # Debug print
     except FileNotFoundError:
         print(f"ERROR: PDF file not found: {file_path}") # Debug print
         st.error(f"PDF file not found: {file_path}")
@@ -149,11 +149,11 @@ def read_pdf_text(file_path):
 def read_text_file(file_path):
     """Reads text content from a plain text file."""
     text_content = ""
-    print(f"Attempting to read TXT: {file_path}") # Debug print
+    print(f"DEBUG: Attempting to read TXT: {file_path}") # Debug print
     try:
         with open(file_path, "r", encoding="utf-8") as f:
             text_content = f.read()
-        print(f"Successfully read TXT: {file_path}, content length: {len(text_content)}") # Debug print
+        print(f"DEBUG: Successfully read TXT: {file_path}, content length: {len(text_content)}") # Debug print
     except FileNotFoundError:
         print(f"ERROR: Text file not found: {file_path}") # Debug print
         st.error(f"Text file not found: {file_path}")
@@ -507,8 +507,14 @@ def tutor_page():
             )
             start_session_button = st.form_submit_button("Start Study Session")
 
-            if start_session_button and selected_subject_for_session != "-- Select a Subject --":
-                print(f"DEBUG: Start Study Session button clicked for: {selected_subject_for_session}") # Debug print
+            if start_session_button: # Check if button is clicked
+                print(f"DEBUG: 'Start Study Session' button clicked.") # Debug print
+                if selected_subject_for_session == "-- Select a Subject --":
+                    st.warning("Please select a valid subject to start your study session.")
+                    print("DEBUG: Invalid subject selected.") # Debug print
+                    st.stop() # Stop execution to show warning
+                
+                print(f"DEBUG: Selected subject: {selected_subject_for_session}") # Debug print
                 st.session_state.current_study_subject = selected_subject_for_session
                 
                 # Construct file paths for PDF syllabus and TXT context files
@@ -523,20 +529,14 @@ def tutor_page():
                 # Load syllabus file (PDF)
                 syllabus_content = read_pdf_text(syllabus_file_path)
                 if syllabus_content is None: # read_pdf_text returns None on error
-                    print(f"DEBUG: Syllabus content is None. Resetting subject and rerunning.") # Debug print
-                    st.session_state.subject_context_loaded = False
-                    st.session_state.current_study_subject = None # Reset subject on error
-                    st.rerun()
-                    return
-
+                    print(f"DEBUG: Syllabus content is None. Stopping.") # Debug print
+                    st.stop() # Stop execution to show error
+                    
                 # Load context file (TXT)
                 context_content = read_text_file(context_file_path) # Changed to read_text_file
                 if context_content is None: # read_text_file returns None on error
-                    print(f"DEBUG: Context content is None. Resetting subject and rerunning.") # Debug print
-                    st.session_state.subject_context_loaded = False
-                    st.session_state.current_study_subject = None # Reset subject on error
-                    st.rerun()
-                    return
+                    print(f"DEBUG: Context content is None. Stopping.") # Debug print
+                    st.stop() # Stop execution to show error
 
                 st.session_state.active_syllabus = syllabus_content
                 st.session_state.active_subject_context = context_content
@@ -577,10 +577,7 @@ def tutor_page():
                 save_chat_history() # Save initial messages to Firestore
                 print(f"DEBUG: Initial chat history and system prompt set. Rerunning.") # Debug print
                 st.rerun() # Rerun to display chat interface
-            elif start_session_button and selected_subject_for_session == "-- Select a Subject --":
-                st.warning("Please select a valid subject to start your study session.")
-                print("DEBUG: Invalid subject selected.") # Debug print
-        # Removed the 'return' here to allow the rest of the page to render on subsequent reruns
+            # No else for start_session_button here, as the outer 'if' handles the display flow
     else: # Subject is selected and context loaded, so show the chat interface
         print(f"DEBUG: Subject already selected ({st.session_state.current_study_subject}). Displaying chat interface.") # Debug print
         # --- Display Current Study Subject and Option to Change ---
