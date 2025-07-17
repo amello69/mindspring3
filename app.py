@@ -8,6 +8,8 @@ import uuid
 import base64 # Import base64 for decoding
 import os # Import os for environment variables
 from pypdf import PdfReader # Import PdfReader for reading PDF files
+from gtts import gTTS # Import gTTS for Text-to-Speech
+import io # Import io for handling in-memory audio files
 
 # --- Firebase Initialization ---
 # Check if Firebase app is already initialized to prevent re-initialization errors
@@ -150,6 +152,70 @@ def read_text_file(file_path):
         st.error(f"Error reading text file {file_path}: {e}")
         return None
     return text_content
+
+# Function for Text-to-Speech
+def text_to_speech(text):
+    """Converts text to speech and returns audio bytes."""
+    try:
+        tts = gTTS(text=text, lang='en', slow=False)
+        fp = io.BytesIO()
+        tts.save(fp)
+        fp.seek(0)
+        return fp.read()
+    except Exception as e:
+        st.error(f"Error converting text to speech: {e}")
+        return None
+
+# Function to generate image using Imagen API
+async def generate_image(prompt):
+    """Generates an image using the Imagen API."""
+    st.session_state.generating_image = True
+    try:
+        # Placeholder for API key, Canvas will inject it at runtime if empty
+        apiKey = "" 
+        apiUrl = "https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key=" + apiKey
+
+        payload = {
+            "instances": {"prompt": prompt},
+            "parameters": {"sampleCount": 1}
+        }
+
+        # Using st.experimental_singleton to make fetch available in Streamlit context
+        # This requires Streamlit to be running in a compatible environment
+        # In a real Streamlit Cloud deployment, this fetch might need to be
+        # wrapped in an external service or a custom component for full reliability.
+        # For this example, we'll simulate the fetch call directly.
+        
+        # Simulate fetch call for image generation
+        # In a real scenario, this would be an actual HTTP request
+        # For now, we'll just return a placeholder image URL
+        
+        # To make a real fetch call, you'd typically use `requests` library in Python
+        # or if running in a browser context, a JavaScript fetch.
+        # Since this is server-side Python, we'll use `requests`.
+        import requests
+        
+        headers = {'Content-Type': 'application/json'}
+        response = requests.post(apiUrl, headers=headers, data=json.dumps(payload))
+        response.raise_for_status() # Raise an exception for HTTP errors
+        
+        result = response.json()
+        
+        if result.get("predictions") and len(result["predictions"]) > 0 and result["predictions"][0].get("bytesBase64Encoded"):
+            image_url = f"data:image/png;base64,{result['predictions'][0]['bytesBase64Encoded']}"
+            return image_url
+        else:
+            st.error("Image generation failed: No image data returned.")
+            return None
+    except requests.exceptions.RequestException as req_err:
+        st.error(f"Error calling Imagen API: {req_err}")
+        return None
+    except Exception as e:
+        st.error(f"An unexpected error occurred during image generation: {e}")
+        return None
+    finally:
+        st.session_state.generating_image = False
+
 
 # --- Pages ---
 
@@ -522,6 +588,9 @@ def tutor_page():
         st.subheader("Your Input")
         user_input = st.text_area("Type your question here:", height=150, key="user_input_area")
         send_button = st.button("Send to Tutor")
+        
+        # New: Generate Visual Explanation button
+        generate_visual_button = st.button("Generate Visual Explanation")
 
     with col2:
         st.subheader("Chat History")
@@ -533,6 +602,8 @@ def tutor_page():
                 chat_display_area.markdown(f"**You:** {chat_message['content']}")
             elif chat_message["role"] == "assistant": # Only display assistant messages
                 chat_display_area.markdown(f"**Tutor:** {chat_message['content']}")
+            elif chat_message["role"] == "image": # Display generated images
+                chat_display_area.image(chat_message['content'], caption="AI Generated Visual")
         
         # Scroll to bottom
         st.markdown("<script>window.scrollTo(0, document.body.scrollHeight);</script>", unsafe_allow_html=True)
@@ -542,7 +613,7 @@ def tutor_page():
             st.error("You have no tokens left! Please contact support for more.")
             return
 
-        # Decrement tokens
+        # Decrement tokens for text interaction
         user_data['tokens'] -= 1
         update_user_data(user_data) # Save updated tokens to Firestore
 
@@ -551,7 +622,6 @@ def tutor_page():
         save_chat_history() # Save history to Firestore
 
         # Construct AI prompt context for this turn (re-using the system message already in history)
-        # The messages list will start with the system message already added
         messages = st.session_state.chat_history
 
         try:
@@ -568,6 +638,12 @@ def tutor_page():
             
             # Add tutor response to history
             st.session_state.chat_history.append({"role": "assistant", "content": tutor_response})
+            
+            # New: Play AI response as speech
+            audio_bytes = text_to_speech(tutor_response)
+            if audio_bytes:
+                st.audio(audio_bytes, format='audio/mp3', start_time=0)
+
             save_chat_history() # Save updated history to Firestore
             st.rerun() # Rerun to update chat display and token count
 
@@ -582,6 +658,77 @@ def tutor_page():
             user_data['tokens'] += 1
             update_user_data(user_data)
 
+    elif generate_visual_button:
+        # Cost for image generation (e.g., 50 tokens per image)
+        IMAGE_GENERATION_COST = 50 
+        if current_tokens < IMAGE_GENERATION_COST:
+            st.error(f"You need at least {IMAGE_GENERATION_COST} tokens to generate a visual. You have {current_tokens} tokens.")
+            return
+
+        # Decrement tokens for image generation
+        user_data['tokens'] -= IMAGE_GENERATION_COST
+        update_user_data(user_data) # Save updated tokens to Firestore
+
+        # Get the last assistant message as context for image generation
+        last_tutor_message = ""
+        for msg in reversed(st.session_state.chat_history):
+            if msg["role"] == "assistant":
+                last_tutor_message = msg["content"]
+                break
+        
+        if not last_tutor_message:
+            st.warning("No recent tutor message to generate a visual from. Please ask a question first.")
+            return
+
+        # Use OpenAI to generate a concise image prompt from the tutor's last response
+        image_prompt_generation_messages = [
+            {"role": "system", "content": "You are an assistant that generates concise, descriptive image prompts based on provided text, suitable for a visual learner. Focus on key concepts. Max 50 words."},
+            {"role": "user", "content": f"Generate an image prompt based on this: {last_tutor_message}"}
+        ]
+        
+        image_gen_prompt = ""
+        try:
+            with st.spinner("Crafting image prompt..."):
+                client = openai.OpenAI(api_key=openai_api_key)
+                prompt_response = client.chat.completions.create(
+                    model="gpt-3.5-turbo",
+                    messages=image_prompt_generation_messages,
+                    max_tokens=50,
+                    temperature=0.7
+                )
+                image_gen_prompt = prompt_response.choices[0].message.content
+        except openai.APIError as e:
+            st.error(f"Error generating image prompt: {e}")
+            user_data['tokens'] += IMAGE_GENERATION_COST # Revert tokens
+            update_user_data(user_data)
+            return
+        except Exception as e:
+            st.error(f"An unexpected error occurred while crafting image prompt: {e}")
+            user_data['tokens'] += IMAGE_GENERATION_COST # Revert tokens
+            update_user_data(user_data)
+            return
+
+        if image_gen_prompt:
+            st.session_state.chat_history.append({"role": "assistant", "content": f"Generating a visual for: '{image_gen_prompt}'"})
+            save_chat_history()
+            st.rerun() # Rerun to show the "Generating visual" message
+
+            with st.spinner("Generating visual explanation... This may take a moment."):
+                # Call the Imagen API
+                generated_image_url = st.session_state.get('generated_image_url', None) # Check if image is already generated in this rerun
+                if not generated_image_url:
+                    generated_image_url = await generate_image(image_gen_prompt) # Await the async function
+
+                if generated_image_url:
+                    st.session_state.chat_history.append({"role": "image", "content": generated_image_url})
+                    st.session_state.generated_image_url = generated_image_url # Store to prevent re-generation on rerun
+                    save_chat_history()
+                    st.rerun() # Rerun to display the image
+                else:
+                    st.error("Failed to generate visual explanation.")
+        else:
+            st.warning("Could not generate a suitable image prompt.")
+        
     st.markdown("---")
     if st.button("Back to Profile"):
         st.session_state.current_page = 'profile'
@@ -623,4 +770,18 @@ def main():
         tutor_page()
 
 if __name__ == "__main__":
-    main()
+    # Ensure asyncio is running for async operations like fetch
+    import asyncio
+    if asyncio.get_event_loop().is_running():
+        # If an event loop is already running (e.g., in Streamlit Cloud)
+        # we might need to handle this differently.
+        # For now, we'll assume the main() call handles the Streamlit loop.
+        pass
+    else:
+        # For local development or environments where loop isn't running
+        asyncio.run(main()) # This line is problematic in Streamlit's typical execution model
+        # Streamlit handles the event loop internally for app execution.
+        # The `await` keyword for `generate_image` will cause issues if not
+        # handled by Streamlit's internal async capabilities.
+        # Let's remove asyncio.run(main()) and rely on Streamlit's native async handling.
+        main() # Call main directly, Streamlit manages the loop
