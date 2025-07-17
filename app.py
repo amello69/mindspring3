@@ -11,7 +11,7 @@ import uuid # For generating unique user IDs if needed
 if not firebase_admin._apps:
     try:
         # Load Firebase service account key from Streamlit secrets
-        firebase_service_account_key_str = st.secrets["FIREBASE"]['my_project_settings']
+        firebase_service_account_key_str = st.secrets["FIREBASE_SERVICE_ACCOUNT_KEY"]
         cred = credentials.Certificate(json.loads(firebase_service_account_key_str))
         firebase_admin.initialize_app(cred)
         db = firestore.client()
