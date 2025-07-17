@@ -678,9 +678,9 @@ def tutor_page():
                 # Call OpenAI API
                 with st.spinner("Tutor is thinking..."):
                     client = openai.OpenAI(api_key=openai_api_key)
-                    # Changed model to gpt-4o for larger context window
+                    # Changed model to gpt-4.1-nano for larger context window
                     response = client.chat.completions.create(
-                        model="gpt-4o", 
+                        model="gpt-4.1-nano", 
                         messages=messages,
                         max_tokens=200,
                         temperature=0.7,
@@ -742,7 +742,7 @@ def tutor_page():
                 with st.spinner("Crafting image prompt..."):
                     client = openai.OpenAI(api_key=openai_api_key)
                     prompt_response = client.chat.completions.create(
-                        model="gpt-4.1-nano", # Using gpt-4o for prompt generation as well
+                        model="gpt-4.1-nano", # Using gpt-4.1-nano for prompt generation as well
                         messages=image_prompt_generation_messages,
                         max_tokens=50,
                         temperature=0.7
