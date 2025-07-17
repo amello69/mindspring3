@@ -487,6 +487,9 @@ def tutor_page():
     st.sidebar.write(f"**Subjects (Profile):** {', '.join(user_data.get('subjects', ['N/A']))}")
     st.sidebar.write(f"**Current Study Subject:** {st.session_state.current_study_subject if st.session_state.current_study_subject else 'Not selected'}")
 
+    # Moved student_grade definition to the top of tutor_page
+    student_grade = st.sidebar.selectbox("Your Grade Level:", ["Elementary", "Middle School", "High School", "College"], index=2) # Default to High School
+
 
     # Define the full list of available subjects for study
     available_study_subjects = [
@@ -590,8 +593,8 @@ def tutor_page():
             st.rerun()
             return # Return here to immediately show the subject selection form
 
-        # Dummy grade for context (can be moved to profile if desired)
-        student_grade = st.sidebar.selectbox("Your Grade Level:", ["Elementary", "Middle School", "High School", "College"], index=2) # Default to High School
+        # The student_grade selectbox is now defined at the top of tutor_page
+        # so it's always available.
 
         # --- Chat Interface ---
         col1, col2 = st.columns([1, 2]) # Input on left, output/history on right
