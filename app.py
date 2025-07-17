@@ -182,6 +182,11 @@ def generate_image(prompt):
     """Generates an image using the Imagen API."""
     st.session_state.generating_image = True
     print(f"DEBUG: Starting image generation for prompt: {prompt}")
+    
+    # Create a placeholder for status messages during image generation
+    status_placeholder = st.empty()
+    status_placeholder.info("Starting image generation...")
+
     try:
         # Placeholder for API key, Canvas will inject it at runtime if empty
         apiKey = "" 
@@ -197,6 +202,7 @@ def generate_image(prompt):
         print(f"DEBUG: Making POST request to: {apiUrl}")
         print(f"DEBUG: Request payload: {json.dumps(payload)}")
         
+        status_placeholder.info("Sending request to image generation API...")
         response = requests.post(apiUrl, headers=headers, data=json.dumps(payload))
         
         print(f"DEBUG: Imagen API response status code: {response.status_code}")
@@ -208,30 +214,38 @@ def generate_image(prompt):
         except json.JSONDecodeError:
             result = {"error": "JSONDecodeError", "raw_response": response.text}
             print(f"ERROR: Imagen API response is not valid JSON. Raw response: {response.text}")
-            st.error(f"Image generation API returned non-JSON response. Check logs for details.")
+            status_placeholder.error(f"Image generation API returned non-JSON response. Status: {response.status_code}. Check logs for details.")
             return None
 
-        response.raise_for_status() # Raise an exception for HTTP errors (e.g., 4xx or 5xx)
-        
+        # Check for HTTP errors
+        if not response.ok: # response.ok is True for 2xx status codes
+            error_message = f"Image generation API returned an error. Status: {response.status_code}. Details: {result.get('error', {}).get('message', 'No specific error message.')}"
+            print(f"ERROR: {error_message}")
+            status_placeholder.error(error_message)
+            return None
+
         if result.get("predictions") and len(result["predictions"]) > 0 and result["predictions"][0].get("bytesBase64Encoded"):
             image_url = f"data:image/png;base64,{result['predictions'][0]['bytesBase64Encoded']}"
             print(f"DEBUG: Successfully generated image. Image URL length: {len(image_url)}")
+            status_placeholder.success("Image generated successfully!")
             return image_url
         else:
             print(f"ERROR: Image generation failed: No image data or bytesBase64Encoded found in response.")
-            st.error("Image generation failed: No image data returned. Check logs for details.")
+            status_placeholder.error("Image generation failed: No image data returned. Check logs for details.")
             return None
     except requests.exceptions.RequestException as req_err:
         print(f"ERROR: Error calling Imagen API: {req_err}")
-        st.error(f"Error calling Imagen API: {req_err}. Check logs for details.")
+        status_placeholder.error(f"Error calling Imagen API: {req_err}. Check logs for details.")
         return None
     except Exception as e:
         print(f"ERROR: An unexpected error occurred during image generation: {e}")
-        st.error(f"An unexpected error occurred during image generation: {e}. Check logs for details.")
+        status_placeholder.error(f"An unexpected error occurred during image generation: {e}. Check logs for details.")
         return None
     finally:
         st.session_state.generating_image = False
         print("DEBUG: Finished image generation attempt.")
+        # Clear the status message after a short delay or on next interaction
+        # For simplicity, we'll let it stay until the next rerun or user interaction.
 
 
 # --- Pages ---
@@ -664,8 +678,9 @@ def tutor_page():
                 # Call OpenAI API
                 with st.spinner("Tutor is thinking..."):
                     client = openai.OpenAI(api_key=openai_api_key)
+                    # Changed model to gpt-4o for larger context window
                     response = client.chat.completions.create(
-                        model="gpt-3.5-turbo", # Or "gpt-4" if you have access
+                        model="gpt-4o", 
                         messages=messages,
                         max_tokens=200,
                         temperature=0.7,
@@ -727,7 +742,7 @@ def tutor_page():
                 with st.spinner("Crafting image prompt..."):
                     client = openai.OpenAI(api_key=openai_api_key)
                     prompt_response = client.chat.completions.create(
-                        model="gpt-3.5-turbo",
+                        model="gpt-4o", # Using gpt-4o for prompt generation as well
                         messages=image_prompt_generation_messages,
                         max_tokens=50,
                         temperature=0.7
@@ -745,20 +760,20 @@ def tutor_page():
                 return
 
             if image_gen_prompt:
+                # Add a temporary message to the chat history indicating image generation is starting
                 st.session_state.chat_history.append({"role": "assistant", "content": f"Generating a visual for: '{image_gen_prompt}'"})
                 save_chat_history()
                 st.rerun() # Rerun to show the "Generating visual" message
 
-                with st.spinner("Generating visual explanation... This may take a moment."):
-                    # Call the Imagen API (now synchronous)
-                    generated_image_url = generate_image(image_gen_prompt) 
+                # Call the Imagen API (now synchronous)
+                generated_image_url = generate_image(image_gen_prompt) 
 
-                    if generated_image_url:
-                        st.session_state.chat_history.append({"role": "image", "content": generated_image_url})
-                        save_chat_history()
-                        st.rerun() # Rerun to display the image
-                    else:
-                        st.error("Failed to generate visual explanation.")
+                if generated_image_url:
+                    st.session_state.chat_history.append({"role": "image", "content": generated_image_url})
+                    save_chat_history()
+                    st.rerun() # Rerun to display the image
+                else:
+                    st.error("Failed to generate visual explanation.")
             else:
                 st.warning("Could not generate a suitable image prompt.")
             
